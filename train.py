@@ -48,7 +48,6 @@ from dataset import (
 )
 import random
 import torchvision.transforms.functional as TF
-from torchvision.transforms import ColorJitter as _ColorJitter
 
 # ===========================================================================
 # encode_mask helper (inlined from sample_code/utils.py)
@@ -77,11 +76,6 @@ def encode_mask(binary_mask):
 class TrainTransform:
     """Joint image + target augmentation applied to the training set only."""
 
-    def __init__(self):
-        self.color_jitter = _ColorJitter(
-            brightness=0.2, contrast=0.2, saturation=0.1, hue=0.0
-        )
-
     def __call__(self, image, target):
         _, H, W = image.shape
 
@@ -101,7 +95,6 @@ class TrainTransform:
             boxes[:, 3] = H - target["boxes"][:, 1]
             target["boxes"] = boxes
 
-        image = self.color_jitter(image)                 # colour only, no mask change
         return image, target
 
 
