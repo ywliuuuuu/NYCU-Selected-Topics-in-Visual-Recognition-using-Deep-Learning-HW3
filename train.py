@@ -29,9 +29,11 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 # ---- torchvision imports --------------------------------------------------
-from torchvision.models.detection import maskrcnn_resnet50_fpn
+from torchvision.models.detection import maskrcnn_resnet50_fpn_v2
+from torchvision.models.detection import MaskRCNN_ResNet50_FPN_V2_Weights
 from torchvision.models.detection.anchor_utils import AnchorGenerator
-from torchvision.models import ResNet50_Weights
+from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
 
 # ---- pycocotools -----------------------------------------------------------
 from pycocotools.coco import COCO
@@ -75,7 +77,11 @@ def encode_mask(binary_mask):
 
 
 def build_model(num_classes: int = 5) -> nn.Module:
-    """Build a Mask R-CNN with ResNet-50-FPN backbone.
+    """Build Mask R-CNN v2 with COCO pretrained weights, fine-tuned heads.
+
+    Loads maskrcnn_resnet50_fpn_v2 with full COCO pretrained weights, then
+    replaces the box predictor and mask predictor heads to match num_classes.
+    The RPN anchor generator is replaced with EDA-tuned sizes for H&E cells.
 
     Parameters
     ----------
@@ -87,10 +93,9 @@ def build_model(num_classes: int = 5) -> nn.Module:
     nn.Module
         The model (not yet moved to a device).
     """
-    model = maskrcnn_resnet50_fpn(
-        weights=None,
-        weights_backbone=ResNet50_Weights.IMAGENET1K_V1,
-        num_classes=num_classes,
+    # Load full COCO pretrained model (91 classes)
+    model = maskrcnn_resnet50_fpn_v2(
+        weights=MaskRCNN_ResNet50_FPN_V2_Weights.COCO_V1,
         box_detections_per_img=800,
         rpn_post_nms_top_n_train=3000,
         rpn_post_nms_top_n_test=1000,
@@ -98,6 +103,15 @@ def build_model(num_classes: int = 5) -> nn.Module:
         image_std=[0.1763, 0.2312, 0.1934],
     )
 
+    # Replace box predictor head (91 → num_classes)
+    in_features = model.roi_heads.box_predictor.cls_score.in_features
+    model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
+
+    # Replace mask predictor head (91 → num_classes)
+    in_ch = model.roi_heads.mask_predictor.conv5_mask.in_channels
+    model.roi_heads.mask_predictor = MaskRCNNPredictor(in_ch, 256, num_classes)
+
+    # Replace with EDA-tuned anchors for H&E cell sizes
     anchor_generator = AnchorGenerator(
         sizes=((19,), (23,), (31,), (53,), (93,)),
         aspect_ratios=((0.7, 1.0, 1.4),) * 5,
