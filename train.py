@@ -46,6 +46,9 @@ from dataset import (
     get_train_val_split,
     collate_fn,
 )
+import random
+import torchvision.transforms.functional as TF
+from torchvision.transforms import ColorJitter as _ColorJitter
 
 # ===========================================================================
 # encode_mask helper (inlined from sample_code/utils.py)
@@ -69,6 +72,37 @@ def encode_mask(binary_mask):
     rle = mask_utils.encode(arr)
     rle["counts"] = rle["counts"].decode("utf-8")
     return rle
+
+
+class TrainTransform:
+    """Joint image + target augmentation applied to the training set only."""
+
+    def __init__(self):
+        self.color_jitter = _ColorJitter(
+            brightness=0.2, contrast=0.2, saturation=0.1, hue=0.0
+        )
+
+    def __call__(self, image, target):
+        _, H, W = image.shape
+
+        if random.random() < 0.5:                        # random H-flip
+            image = TF.hflip(image)
+            target["masks"] = target["masks"].flip(-1)
+            boxes = target["boxes"].clone()
+            boxes[:, 0] = W - target["boxes"][:, 2]
+            boxes[:, 2] = W - target["boxes"][:, 0]
+            target["boxes"] = boxes
+
+        if random.random() < 0.5:                        # random V-flip
+            image = TF.vflip(image)
+            target["masks"] = target["masks"].flip(-2)
+            boxes = target["boxes"].clone()
+            boxes[:, 1] = H - target["boxes"][:, 3]
+            boxes[:, 3] = H - target["boxes"][:, 1]
+            target["boxes"] = boxes
+
+        image = self.color_jitter(image)                 # colour only, no mask change
+        return image, target
 
 
 # ===========================================================================
@@ -641,6 +675,8 @@ def main():
     train_subset, val_subset = get_train_val_split(
         full_dataset, val_ratio=0.2, seed=42
     )
+    train_aug_ds = CellDataset(args.data_dir, transforms=TrainTransform())
+    train_subset = torch.utils.data.Subset(train_aug_ds, train_subset.indices)
     print(
         f"Train: {len(train_subset)}, Val: {len(val_subset)}"
     )
