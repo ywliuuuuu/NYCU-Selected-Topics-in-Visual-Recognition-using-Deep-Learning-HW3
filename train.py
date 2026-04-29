@@ -48,6 +48,7 @@ from dataset import (
 )
 import random
 import torchvision.transforms.functional as TF
+from skimage.color import rgb2hed as _rgb2hed, hed2rgb as _hed2rgb
 
 # ===========================================================================
 # encode_mask helper (inlined from sample_code/utils.py)
@@ -94,6 +95,17 @@ class TrainTransform:
             boxes[:, 1] = H - target["boxes"][:, 3]
             boxes[:, 3] = H - target["boxes"][:, 1]
             target["boxes"] = boxes
+
+        # HED stain jitter — perturb Hematoxylin and Eosin channels
+        # in HED colour space (physically meaningful, preserves class colour semantics)
+        img_np = image.permute(1, 2, 0).numpy()          # (H,W,3) float32 [0,1]
+        hed = _rgb2hed(img_np)
+        hed[:, :, 0] *= random.uniform(0.9, 1.1)         # H channel (hematoxylin)
+        hed[:, :, 0] += random.uniform(-0.05, 0.05)
+        hed[:, :, 1] *= random.uniform(0.9, 1.1)         # E channel (eosin)
+        hed[:, :, 1] += random.uniform(-0.05, 0.05)
+        rgb = _hed2rgb(hed).clip(0.0, 1.0).astype(np.float32)
+        image = torch.from_numpy(rgb).permute(2, 0, 1)
 
         return image, target
 
